@@ -27,31 +27,42 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 		CreateWindow("BreakoutGameClass", "Breakout", WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT,
 			CW_USEDEFAULT, WindowWidth, WindowHeight, NULL, NULL, Instance, NULL);
 
+	int keystate = 0;
 	while (true) {
 		MSG Message;
 		while (PeekMessage(&Message, NULL, 0, 0, PM_REMOVE)) {
 			switch (Message.message) {
 				case (WM_KEYDOWN): {
-					auto dx = 0;
-					auto dy = 0;
 					switch (Message.wParam) {
 						case (VK_LEFT): {
-							dx -= 1;
+							keystate |= 1 << 3;
 						} break;
 						case (VK_RIGHT): {
-							dx += 1;
+							keystate |= 1 << 2;
 						} break;
 						case (VK_UP): {
-							dy -= 1;
+							keystate |= 1 << 1;
 						} break;
 						case (VK_DOWN): {
-							dy += 1;
+							keystate |= 1;
 						} break;
 					}
-					RECT WindowRect;
-					GetWindowRect(Window, &WindowRect);
-					SetWindowPos(Window, HWND_TOP, WindowRect.left + dx, WindowRect.top + dy,
-						0, 0, SWP_NOZORDER | SWP_NOSIZE);
+				} break;
+				case (WM_KEYUP): {
+					switch (Message.wParam) {
+						case (VK_LEFT): {
+							keystate &= ~(1 << 3);
+						} break;
+						case (VK_RIGHT): {
+							keystate &= ~(1 << 2);
+						} break;
+						case (VK_UP): {
+							keystate &= ~(1 << 1);
+						} break;
+						case (VK_DOWN): {
+							keystate &= ~(1);
+						} break;
+					}
 				} break;
 				default: {
 					TranslateMessage(&Message);
@@ -59,6 +70,15 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 				}
 			}
 		}
+		float dx = 0, dy = 0;
+		if ((keystate & 1 << 3)) dx -= 1;
+		if ((keystate & 1 << 2)) dx += 1;
+		if ((keystate & 1 << 1)) dy -= 1;
+		if ((keystate & 1 << 0)) dy += 1;
+		RECT WindowRect;
+		GetWindowRect(Window, &WindowRect);
+		SetWindowPos(Window, HWND_TOP, WindowRect.left + dx, WindowRect.top + dy,
+			0, 0, SWP_NOZORDER | SWP_NOSIZE);
 		if (Message.message == WM_QUIT) {
 			break;
 		}
