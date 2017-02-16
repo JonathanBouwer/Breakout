@@ -1,10 +1,5 @@
 #include <Windows.h>
-#include <stdint.h>
-
-const int WindowWidth = 1280;
-const int WindowHeight = 720;
-const int GameWidth = 1152;
-const int GameHeight = 648;
+#include "main.h"
 
 LRESULT CALLBACK WindowProc(HWND Window, UINT Message, WPARAM wParam, LPARAM lParam) {
 	LRESULT result = 0;
@@ -26,6 +21,20 @@ LRESULT CALLBACK WindowProc(HWND Window, UINT Message, WPARAM wParam, LPARAM lPa
 	return result;
 }
 
+HWND CreateWindowHandle(HINSTANCE Instance, LPSTR Title) {
+	WNDCLASS WindowClass{};
+	WindowClass.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
+	WindowClass.lpfnWndProc = WindowProc;
+	WindowClass.hInstance = Instance;
+	WindowClass.lpszClassName = "BreakoutGameClass";
+	RegisterClass(&WindowClass);
+	DWORD WindowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
+	HWND Window = CreateWindow("BreakoutGameClass", Title, WindowStyle,
+		CW_USEDEFAULT, CW_USEDEFAULT, windowSizes.WindowWidth, windowSizes.WindowHeight,
+		NULL, NULL, Instance, NULL);
+	return Window;
+}
+
 void RenderGame(HWND Window, RECT *ClientRect, VOID *Bitmap, BITMAPINFO *BitmapInfo) {
 	HDC hdc = GetDC(Window);
 	int ret = StretchDIBits(hdc,
@@ -35,20 +44,40 @@ void RenderGame(HWND Window, RECT *ClientRect, VOID *Bitmap, BITMAPINFO *BitmapI
 	ReleaseDC(Window, hdc);
 }
 
+void SetupInput() {
+	inputState.setKeys[0] = VK_UP;
+	inputState.setKeys[1] = VK_DOWN;
+	inputState.setKeys[2] = VK_LEFT;
+	inputState.setKeys[3] = VK_RIGHT;
+	inputState.setKeys[4] = VK_SPACE;
+	inputState.setKeys[5] = VK_ESCAPE;
+	inputState.setKeys[6] = VK_LBUTTON;
+	inputState.setKeys[7] = VK_RBUTTON;
+	inputState.keystate = 0;
+}
+
+void HandleInput(uint32_t keyPressed, int keyPos) {
+	for (int i = 0; i < inputState.numberOfKeys; i++) {
+		if (inputState.setKeys[i] == keyPressed) {
+			if(keyPos == WM_KEYDOWN) {
+				inputState.keystate |= 1 << i;
+			} else {
+				inputState.keystate &= ~(1 << i);
+			}
+			break;
+		}
+	}
+}
+
 int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowType) {
-	WNDCLASS WindowClass{};
-	WindowClass.style = CS_OWNDC | CS_HREDRAW | CS_VREDRAW;
-	WindowClass.lpfnWndProc = WindowProc;
-	WindowClass.hInstance = Instance;
-	WindowClass.lpszClassName = "BreakoutGameClass";
-	RegisterClass(&WindowClass);
-	DWORD WindowStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_VISIBLE;
-	HWND Window =
-		CreateWindow("BreakoutGameClass", "Breakout", WindowStyle, CW_USEDEFAULT,
-			CW_USEDEFAULT, WindowWidth, WindowHeight, NULL, NULL, Instance, NULL);
-	
+	HWND Window = CreateWindowHandle(Instance, "Breakout");
 	RECT ClientRect;
 	GetClientRect(Window, &ClientRect);
+	assert(ClientRect.right > windowSizes.GameWidth);
+	assert(ClientRect.bottom > windowSizes.GameHeight);
+	windowSizes.leftOffset = (((int16_t) ClientRect.right) - windowSizes.GameWidth) / 2;
+	windowSizes.topOffset = (((int16_t) ClientRect.bottom) - windowSizes.GameHeight) / 2;
+
 	BITMAPINFO BitmapInfo{};
 	BitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
 	BitmapInfo.bmiHeader.biWidth = ClientRect.right;
@@ -60,43 +89,16 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 	int32_t BitmapSize = sizeof(DWORD) * ClientRect.right * ClientRect.bottom;
 	VOID *Bitmap = VirtualAlloc(NULL, BitmapSize, MEM_COMMIT, PAGE_READWRITE);
 
-	int keystate = 0;
+	SetupInput();
+	int32_t r = 0, g = 0, b = 0;
 	while (true) {
 		MSG Message;
 		int count = 0;
-		while (PeekMessage(&Message, NULL, 0, 0, PM_REMOVE)>0) {
+		while (PeekMessage(&Message, NULL, 0, 0, PM_REMOVE) > 0) {
 			switch (Message.message) {
-				case WM_KEYDOWN: {
-					switch (Message.wParam) {
-						case VK_LEFT: {
-							keystate |= 1 << 3;
-						} break;
-						case VK_RIGHT: {
-							keystate |= 1 << 2;
-						} break;
-						case VK_UP: {
-							keystate |= 1 << 1;
-						} break;
-						case VK_DOWN: {
-							keystate |= 1;
-						} break;
-					}
-				} break;
+				case WM_KEYDOWN:
 				case WM_KEYUP: {
-					switch (Message.wParam) {
-						case VK_LEFT: {
-							keystate &= ~(1 << 3);
-						} break;
-						case VK_RIGHT: {
-							keystate &= ~(1 << 2);
-						} break;
-						case VK_UP: {
-							keystate &= ~(1 << 1);
-						} break;
-						case VK_DOWN: {
-							keystate &= ~(1);
-						} break;
-					}
+					HandleInput((uint32_t) Message.wParam, Message.message);
 				} break;
 				default: {
 					TranslateMessage(&Message);
@@ -105,14 +107,18 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 			}
 			++count;
 		}
-		for(int i=0; i<ClientRect.bottom; i++) {
-			for (int j = 0; j<ClientRect.right; j++) {
+		r = (inputState.keystate & 1 << 3) ? (r < 0xff ? r + 1 : r) : (r > 0 ? r - 1 : r);
+		g = (inputState.keystate & 1 << 2) ? (g < 0xff ? g + 1 : g) : (g > 0 ? g - 1 : g);
+		b = (inputState.keystate & 1 << 1) ? (b < 0xff ? b + 1 : b) : (b > 0 ? b - 1 : b);
+		int ystart = windowSizes.topOffset, 
+			yend = ystart + windowSizes.GameHeight,
+			xstart = windowSizes.leftOffset, 
+			xend = xstart + windowSizes.GameWidth;
+		for (int i = ystart; i < yend; i++) {
+			for (int j = xstart; j < xend; j++) {
 				int32_t *Pixel = (int32_t *) (Bitmap);
 				Pixel = Pixel + i*ClientRect.right + j;
-				int32_t r = (keystate & 1 << 3) * 0xff;
-				int32_t g = (keystate & 1 << 2) * 0xff;
-				int32_t b = (keystate & 1 << 0) * 0xff;
-				*Pixel = (r<<16) + (g<<8) + (b<<0);
+				*Pixel = (r << 16) + (g << 8) + (b << 0);
 			}
 		}
 		RenderGame(Window, &ClientRect, Bitmap, &BitmapInfo);
