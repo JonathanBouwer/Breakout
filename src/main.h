@@ -2,10 +2,10 @@
 #include <assert.h>  
 //#define NDEBUG 
 struct Vector {
-	int32_t x;
-	int32_t y;
+	float x;
+	float y;
 
-	Vector(int32_t x, int32_t y) : x(x), y(y) {};
+	Vector(float x, float y) : x(x), y(y) {};
 	Vector operator+(const Vector &other) {
 		return Vector(x + other.x, y + other.y);
 	}
@@ -22,10 +22,14 @@ struct Vector {
 		y -= other.y;
 		return *this;
 	}
-	Vector operator*(const int32_t &c) {
+	Vector operator*(float c) {
 		return Vector(x * c, y * c);
 	}
 };
+
+inline Vector operator*(float f, Vector v) {
+	return v*f;
+}
 
 struct WindowParameters {
 	int16_t WindowWidth;

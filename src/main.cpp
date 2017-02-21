@@ -1,4 +1,5 @@
 #include <Windows.h>
+#include <string>
 #include "main.h"
 
 LRESULT CALLBACK WindowProc(HWND Window, UINT Message, WPARAM wParam, LPARAM lParam) {
@@ -78,13 +79,13 @@ void SetupGame() {
 
 	gameState.player.width = 180;
 	gameState.player.height = 20;
-	gameState.player.position = Vector(windowSizes.ClientWidth / 2, 20);
-	gameState.player.velocity = Vector(5, 0);
+	gameState.player.position = Vector(windowSizes.ClientWidth / 2.0f, 20.0f);
+	gameState.player.velocity = Vector(200.0f, 0.0f);
 
 	gameState.ball.radius = 10;
-	Vector yoffset = Vector(0, gameState.player.height / 2 + gameState.ball.radius);
+	Vector yoffset = Vector(0.0f, gameState.player.height / 2.0f + gameState.ball.radius);
 	gameState.ball.position = gameState.player.position + yoffset;
-	gameState.ball.velocity = Vector(10, 10);
+	gameState.ball.velocity = Vector(300.0f, 300.0f);
 }
 
 void HandleInput(uint32_t keyPressed, int keyPos) {
@@ -100,12 +101,17 @@ void HandleInput(uint32_t keyPressed, int keyPos) {
 	}
 }
 
+void UpdateGame(float dt) {
+	if (inputState.keystate & (1 << 3)) gameState.player.position += dt*gameState.player.velocity;
+	if (inputState.keystate & (1 << 2)) gameState.player.position -= dt*gameState.player.velocity;
+}
+
 void DrawGameToBitmap(VOID* Bitmap) {
 	// Background
 	DrawGameRect(Bitmap, 0, 0, windowSizes.GameWidth, windowSizes.GameHeight, 0x00333333);
 	// Player
-	int32_t playerLeft = gameState.player.position.x - gameState.player.width / 2;
-	int32_t playerBottom = gameState.player.position.y - gameState.player.height / 2;
+	int32_t playerLeft = (int32_t) gameState.player.position.x - gameState.player.width / 2;
+	int32_t playerBottom = (int32_t) gameState.player.position.y - gameState.player.height / 2;
 	int32_t playerRight = playerLeft + gameState.player.width;
 	int32_t playerTop = playerBottom + gameState.player.height;
 	DrawGameRect(Bitmap, playerLeft, playerBottom, playerRight, playerTop, 0x00FFFFFF);
@@ -135,9 +141,23 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 
 	SetupInput();
 	SetupGame();
+	LARGE_INTEGER prevUpdateTime, curUpdateTime, frameStartTime, frameCurTime, frequency;
+	float elapsedSeconds;
+	QueryPerformanceFrequency(&frequency); // per second frequency
+	QueryPerformanceCounter(&prevUpdateTime);
+	TIMECAPS tc;
+	timeGetDevCaps(&tc, sizeof(TIMECAPS));
+	timeBeginPeriod(tc.wPeriodMin);
+
+	HDC hdc = GetDC(Window);
+	int refreshRate = GetDeviceCaps(hdc, VREFRESH);
+	ReleaseDC(Window, hdc);
+	const float updateTimestep = 1.0f / refreshRate;
+	float acumulator = 0.0f;
 	while (true) {
+		QueryPerformanceCounter(&frameStartTime);
+		// Get Input
 		MSG Message;
-		int count = 0;
 		while (PeekMessage(&Message, NULL, 0, 0, PM_REMOVE) > 0) {
 			switch (Message.message) {
 				case WM_KEYDOWN:
@@ -149,15 +169,36 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 					DispatchMessage(&Message);
 				}
 			}
-			++count;
 		}
-		if (inputState.keystate & (1 << 3)) gameState.player.position += gameState.player.velocity;
-		if (inputState.keystate & (1 << 2)) gameState.player.position -= gameState.player.velocity;
-		DrawGameToBitmap(Bitmap);		
-		RenderGame(Window, &ClientRect, Bitmap, &BitmapInfo);
 		if (Message.message == WM_QUIT) {
 			return (int) Message.wParam;
 		}
+
+		// Update Game Physics etc
+		QueryPerformanceCounter(&curUpdateTime);
+		elapsedSeconds = (curUpdateTime.QuadPart - prevUpdateTime.QuadPart) / (float) frequency.QuadPart;
+		prevUpdateTime = curUpdateTime;
+		std::string s = std::to_string(elapsedSeconds) + "seconds " + std::to_string(1 / elapsedSeconds) + "fps\n";
+		OutputDebugString(s.c_str());
+
+		acumulator += elapsedSeconds;
+		while (acumulator >= updateTimestep) {
+			UpdateGame(updateTimestep);
+			acumulator -= updateTimestep;
+		}
+
+		// Render Game to Bitmap
+		DrawGameToBitmap(Bitmap);
+
+		// Sleep till frame flip
+		QueryPerformanceCounter(&frameCurTime);
+		float sleepTime = updateTimestep - ((frameCurTime.QuadPart - frameStartTime.QuadPart) / (float) frequency.QuadPart);
+		if (sleepTime > 0) { 
+			Sleep((DWORD) (sleepTime * 1000) - 1); 
+		}
+
+		// Flip Frame
+		RenderGame(Window, &ClientRect, Bitmap, &BitmapInfo);
 	}
 	return 0;
 }
