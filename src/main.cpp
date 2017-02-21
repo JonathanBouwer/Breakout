@@ -44,6 +44,22 @@ void RenderGame(HWND Window, RECT *ClientRect, VOID *Bitmap, BITMAPINFO *BitmapI
 	ReleaseDC(Window, hdc);
 }
 
+void DrawGameRect(VOID *Bitmap, int32_t left, int32_t bottom, int32_t right, int32_t top, int32_t color) {
+	if (left < 0) left = 0;
+	if (bottom < 0) bottom = 0;
+	if (right > windowSizes.GameWidth) right = windowSizes.GameWidth;
+	if (top > windowSizes.GameHeight) top = windowSizes.GameHeight;
+	for (int32_t j = bottom; j < top; j++) {
+		uint32_t screenY = j + windowSizes.topOffset;
+		for (int32_t i = left; i < right; i++) {
+			uint32_t screenX = i + windowSizes.leftOffset;
+			int32_t *Pixel = (int32_t *) (Bitmap);
+			Pixel = Pixel + screenY*windowSizes.ClientWidth + screenX;
+			*Pixel = color;
+		}
+	}
+}
+
 void SetupInput() {
 	inputState.setKeys[0] = VK_UP;
 	inputState.setKeys[1] = VK_DOWN;
@@ -56,10 +72,25 @@ void SetupInput() {
 	inputState.keystate = 0;
 }
 
+void SetupGame() {
+	gameState.currentState = PLAY;
+	gameState.goalState = PLAY;
+
+	gameState.player.width = 180;
+	gameState.player.height = 20;
+	gameState.player.position = Vector(windowSizes.ClientWidth / 2, 20);
+	gameState.player.velocity = Vector(5, 0);
+
+	gameState.ball.radius = 10;
+	Vector yoffset = Vector(0, gameState.player.height / 2 + gameState.ball.radius);
+	gameState.ball.position = gameState.player.position + yoffset;
+	gameState.ball.velocity = Vector(10, 10);
+}
+
 void HandleInput(uint32_t keyPressed, int keyPos) {
 	for (int i = 0; i < inputState.numberOfKeys; i++) {
 		if (inputState.setKeys[i] == keyPressed) {
-			if(keyPos == WM_KEYDOWN) {
+			if (keyPos == WM_KEYDOWN) {
 				inputState.keystate |= 1 << i;
 			} else {
 				inputState.keystate &= ~(1 << i);
@@ -69,28 +100,41 @@ void HandleInput(uint32_t keyPressed, int keyPos) {
 	}
 }
 
+void DrawGameToBitmap(VOID* Bitmap) {
+	// Background
+	DrawGameRect(Bitmap, 0, 0, windowSizes.GameWidth, windowSizes.GameHeight, 0x00333333);
+	// Player
+	int32_t playerLeft = gameState.player.position.x - gameState.player.width / 2;
+	int32_t playerBottom = gameState.player.position.y - gameState.player.height / 2;
+	int32_t playerRight = playerLeft + gameState.player.width;
+	int32_t playerTop = playerBottom + gameState.player.height;
+	DrawGameRect(Bitmap, playerLeft, playerBottom, playerRight, playerTop, 0x00FFFFFF);
+}
+
 int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLine, int ShowType) {
 	HWND Window = CreateWindowHandle(Instance, "Breakout");
 	RECT ClientRect;
 	GetClientRect(Window, &ClientRect);
 	assert(ClientRect.right > windowSizes.GameWidth);
 	assert(ClientRect.bottom > windowSizes.GameHeight);
-	windowSizes.leftOffset = (((int16_t) ClientRect.right) - windowSizes.GameWidth) / 2;
-	windowSizes.topOffset = (((int16_t) ClientRect.bottom) - windowSizes.GameHeight) / 2;
+	windowSizes.ClientWidth = (int16_t) ClientRect.right;
+	windowSizes.ClientHeight = (int16_t) ClientRect.bottom;
+	windowSizes.leftOffset = (windowSizes.ClientWidth - windowSizes.GameWidth) / 2;
+	windowSizes.topOffset = (windowSizes.ClientHeight - windowSizes.GameHeight) / 2;
 
 	BITMAPINFO BitmapInfo{};
 	BitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-	BitmapInfo.bmiHeader.biWidth = ClientRect.right;
-	BitmapInfo.bmiHeader.biHeight = ClientRect.bottom;
+	BitmapInfo.bmiHeader.biWidth = windowSizes.ClientWidth;
+	BitmapInfo.bmiHeader.biHeight = windowSizes.ClientHeight;
 	BitmapInfo.bmiHeader.biPlanes = 1;
 	BitmapInfo.bmiHeader.biBitCount = 32;
 	BitmapInfo.bmiHeader.biCompression = BI_RGB;
 
-	int32_t BitmapSize = sizeof(DWORD) * ClientRect.right * ClientRect.bottom;
+	int32_t BitmapSize = sizeof(DWORD) * windowSizes.ClientWidth * windowSizes.ClientHeight;
 	VOID *Bitmap = VirtualAlloc(NULL, BitmapSize, MEM_COMMIT, PAGE_READWRITE);
 
 	SetupInput();
-	int32_t r = 0, g = 0, b = 0;
+	SetupGame();
 	while (true) {
 		MSG Message;
 		int count = 0;
@@ -107,20 +151,9 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance, LPSTR CommandLi
 			}
 			++count;
 		}
-		r = (inputState.keystate & 1 << 3) ? (r < 0xff ? r + 1 : r) : (r > 0 ? r - 1 : r);
-		g = (inputState.keystate & 1 << 2) ? (g < 0xff ? g + 1 : g) : (g > 0 ? g - 1 : g);
-		b = (inputState.keystate & 1 << 1) ? (b < 0xff ? b + 1 : b) : (b > 0 ? b - 1 : b);
-		int ystart = windowSizes.topOffset, 
-			yend = ystart + windowSizes.GameHeight,
-			xstart = windowSizes.leftOffset, 
-			xend = xstart + windowSizes.GameWidth;
-		for (int i = ystart; i < yend; i++) {
-			for (int j = xstart; j < xend; j++) {
-				int32_t *Pixel = (int32_t *) (Bitmap);
-				Pixel = Pixel + i*ClientRect.right + j;
-				*Pixel = (r << 16) + (g << 8) + (b << 0);
-			}
-		}
+		if (inputState.keystate & (1 << 3)) gameState.player.position += gameState.player.velocity;
+		if (inputState.keystate & (1 << 2)) gameState.player.position -= gameState.player.velocity;
+		DrawGameToBitmap(Bitmap);		
 		RenderGame(Window, &ClientRect, Bitmap, &BitmapInfo);
 		if (Message.message == WM_QUIT) {
 			return (int) Message.wParam;
